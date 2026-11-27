@@ -42,6 +42,18 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
+      # SDK 平台/构建工具装一次就固定了，缓存掉可以省下每次几分钟的下载
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_SDK_ROOT }}/platforms
+            ${{ env.ANDROID_SDK_ROOT }}/build-tools
+            ${{ env.ANDROID_SDK_ROOT }}/licenses
+          key: android-sdk-${{ runner.os }}-37.2-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            android-sdk-${{ runner.os }}-
+
       - name: Point Gradle at the Android SDK
         run: echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > local.properties
 
@@ -49,18 +61,27 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # 缓存：~/.gradle/caches 里的依赖与构建缓存，key 由 build 脚本/lock 文件算出。
+      # tag 构建也要写缓存（默认 PR 上是只读），否则每次 tag 都要冷启动。
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+          gradle-home-cache-cleanup: true
+          # 只缓存依赖和 build-cache，不缓存 project 目录下的临时产物
+          gradle-home-cache-includes: |
+            caches
+            notifications
+            jdks
 
-      # R8 的 release 收缩阶段很吃堆（Compose + material-icons-extended 有上万个类），
-      # 2g 会直接 java.lang.OutOfMemoryError: Java heap space。
-      # runner 有 16G 内存，这里把项目里的 4g 提到 6g。
+      # R8 的 release 收缩阶段很吃堆：关掉 packageScope 后 R8 要处理整个应用
+      # （几万个类，含 openai-java 与 Jackson），4g 实测仍会 OOM，这里给到 8g。
       # 直接改 checkout 出来的 gradle.properties，不去赌 GRADLE_USER_HOME 的优先级规则。
       - name: Raise Gradle heap for R8
         shell: bash
         run: |
           set -euo pipefail
-          LINE="org.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          LINE="org.gradle.jvmargs=-Xmx8192m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
           sed -i "s|^org\.gradle\.jvmargs=.*|$LINE|" gradle.properties
           grep -n '^org\.gradle\.jvmargs=' gradle.properties
 

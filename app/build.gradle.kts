@@ -52,8 +52,16 @@ android {
     buildTypes {
         release {
             optimization {
+                // 只开总开关，不要设 packageScope。
+                // packageScope 是「还没上 R8 的应用渐进迁移」用的实验功能，只对列出的包
+                // 做压缩/混淆，其余代码原样保留。之前设了 androidx/kotlin/kotlinx 三项，
+                // 结果 openai-java、Jackson、OkHttp 和全部业务代码都没被裁掉也没被混淆，
+                // dex 涨到 56MB、5 万个类。官方也明说已经在用 R8 的应用不该用它。
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                keepRules {
+                    // 新 DSL 默认不再带 AGP 内置的 Android keep 规则，这里显式打开。
+                    includeDefault = true
+                }
             }
             // 有发布密钥就用发布密钥；没有时退回 debug 签名，保证 APK 仍可直接安装。
             signingConfig = signingConfigs.findByName("release")
@@ -76,7 +84,9 @@ android {
         resources {
             excludes += setOf(
                 "/META-INF/{AL2.0,LGPL2.1}",
-                "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+                "/META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                // Jackson 给 GraalVM native-image 用的反射元数据，Android 上无用，约 5.4MB
+                "/META-INF/native-image/**"
             )
         }
     }

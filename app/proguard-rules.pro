@@ -29,3 +29,7 @@
 
 # 应用内通过 Gson 反序列化的传输模型。
 -keep class io.savant.assey.data.parser.** { *; }
+
+# tasks.json 由 Gson 按字段名直接读写，字段被混淆后老数据就读不出来了。
+# domain 包很小，整包保留。
+-keep class io.savant.assey.domain.** { *; }
