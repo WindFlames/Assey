@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -8,7 +10,7 @@ val appVersionName = providers.gradleProperty("appVersionName").orNull ?: "1.0"
 val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1
 
 // 发布签名：优先读环境变量（CI），其次读仓库根目录的 keystore.properties（本地，已 gitignore）。
-val keystoreProps = java.util.Properties().apply {
+val keystoreProps = Properties().apply {
     val file = rootProject.file("keystore.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
