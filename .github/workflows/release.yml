@@ -52,6 +52,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # R8 的 release 收缩阶段很吃堆（Compose + material-icons-extended 有上万个类），
+      # 2g 会直接 java.lang.OutOfMemoryError: Java heap space。
+      # runner 有 16G 内存，这里把项目里的 4g 提到 6g。
+      # 直接改 checkout 出来的 gradle.properties，不去赌 GRADLE_USER_HOME 的优先级规则。
+      - name: Raise Gradle heap for R8
+        shell: bash
+        run: |
+          set -euo pipefail
+          LINE="org.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+          sed -i "s|^org\.gradle\.jvmargs=.*|$LINE|" gradle.properties
+          grep -n '^org\.gradle\.jvmargs=' gradle.properties
+
       - name: Resolve version
         id: version
         shell: bash
