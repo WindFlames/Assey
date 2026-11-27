@@ -55,7 +55,7 @@ android {
             }
             // 有发布密钥就用发布密钥；没有时退回 debug 签名，保证 APK 仍可直接安装。
             signingConfig = signingConfigs.findByName("release")
-                ?: signingConfigs.getByName("debug")
+                ?: signingConfigs.findByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
