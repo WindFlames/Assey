@@ -33,11 +33,11 @@ class Exporter(private val context: Context) {
 
     fun exportZip(task: TaskRecord): String {
         val name = exportBaseName(task) + ".zip"
-        val zip = buildZip(task)
+        val entries = zipEntries(task)
+        // 直接流式写进系统下载目录：不落 cache 临时包，内存只占 8KB 缓冲
         saveToDownloads(name, "application/zip") { out ->
-            zip.inputStream().use { it.copyTo(out) }
+            zipWriter.write(entries, out)
         }
-        zip.delete()
         return name
     }
 
@@ -51,8 +51,8 @@ class Exporter(private val context: Context) {
     }
 
     fun shareZip(task: TaskRecord): Uri {
-        // buildZip 已经写在 cache/share 下，直接分享，避免源和目标是同一个文件
-        return shareFile(buildZip(task), "application/zip")
+        // FileProvider 只服务真实文件，分享这一路必须落盘，写在 cache/share 下
+        return shareFile(buildZipFile(task), "application/zip")
     }
 
     private fun shareFile(file: File, mime: String): Uri {
@@ -78,7 +78,8 @@ class Exporter(private val context: Context) {
         return path?.let(::File)?.takeIf { it.isFile }
     }
 
-    private fun buildZip(task: TaskRecord): File {
+    /** 只算「打包什么」，不负责落在哪：导出走流，分享走临时文件，两份逻辑共用。 */
+    private fun zipEntries(task: TaskRecord): List<Pair<File, String>> {
         val markdown = File(task.markdownPath ?: throw AppError.InvalidInput("没有可导出的 Markdown"))
         val root = task.assetsPath?.let(::File)
         val base = exportBaseName(task)
@@ -98,9 +99,13 @@ class Exporter(private val context: Context) {
                     entries.add(file to relative)
                 }
         }
+        return entries
+    }
+
+    private fun buildZipFile(task: TaskRecord): File {
         val dir = File(context.cacheDir, "share").apply { mkdirs() }
-        val out = File(dir, "$base.zip")
-        zipWriter.write(entries, out)
+        val out = File(dir, exportBaseName(task) + ".zip")
+        zipWriter.write(zipEntries(task), out)
         return out
     }
 

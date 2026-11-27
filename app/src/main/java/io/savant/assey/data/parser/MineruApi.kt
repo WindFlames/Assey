@@ -14,7 +14,9 @@ import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
+import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
 
 /**
  * MinerU 调用层：Retrofit 实例的持有者，负责
@@ -170,6 +172,42 @@ class MineruApi(
         }
         if (total > 0 && dest.length() != total) {
             throw AppError.NetworkError("下载不完整，请重试")
+        }
+    }
+
+    /**
+     * 边下边处理：响应字节流直接交给 [consume]，App 内不落 zip 文件。
+     * 用于「下载结果包 → 立刻解压」，省掉一次临时文件的写入与读回。
+     */
+    suspend fun downloadStream(
+        url: String,
+        onProgress: (done: Long, total: Long) -> Unit = { _, _ -> },
+        consume: (InputStream) -> Unit
+    ) {
+        val response = openStream(url)
+        val body = response.body() ?: throw AppError.NetworkError("下载结果为空")
+        val total = body.contentLength()
+        try {
+            withContext(Dispatchers.IO) {
+                var done = 0L
+                body.byteStream().use { raw ->
+                    val counting = object : FilterInputStream(raw) {
+                        private fun advance(read: Int) {
+                            if (read <= 0) return
+                            done += read
+                            onProgress(done, if (total > 0) total else -1L)
+                        }
+
+                        override fun read(): Int = super.read().also { advance(it) }
+
+                        override fun read(b: ByteArray, off: Int, len: Int): Int =
+                            super.read(b, off, len).also { advance(it) }
+                    }
+                    consume(counting)
+                }
+            }
+        } finally {
+            runCatching { body.close() }
         }
     }
 

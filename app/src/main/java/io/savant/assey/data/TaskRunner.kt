@@ -5,6 +5,7 @@ import io.savant.assey.AppContainer
 import io.savant.assey.core.AppError
 import io.savant.assey.core.errorKind
 import io.savant.assey.core.userMessage
+import io.savant.assey.data.files.AssetShortener
 import io.savant.assey.domain.ParseProgress
 import io.savant.assey.domain.ParseRequest
 import io.savant.assey.domain.ParseResult
@@ -167,7 +168,10 @@ class TaskRunner(private val container: AppContainer) {
             File(taskDir, "full.md")
         }
         markdownFile.parentFile?.mkdirs()
-        markdownFile.writeText(result.markdown)
+        // 上游图片是 hash 长名，这里统一改成 0.jpg / 1.jpg 这类短序号并同步改写引用，
+        // 必须在写 full.md 之前做，翻译产物才会继承短名。
+        val markdown = AssetShortener.shorten(result.markdown, assetsDir)
+        markdownFile.writeText(markdown)
 
         container.taskModel.update(taskId, forcePersist = true) {
             it.copy(

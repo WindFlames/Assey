@@ -170,11 +170,10 @@ class MineruPrecisionParser(
         val destDir = File(taskDirProvider(dataId), "result")
         val parent = destDir.parentFile ?: destDir
         parent.mkdirs()
-        val zipFile = File(parent, "result.zip")
         destDir.deleteRecursively()
         destDir.mkdirs()
 
-        downloaderProvider().download(zipUrl, zipFile, taskKey = dataId) { done, total ->
+        val onBytes: (Long, Long) -> Unit = { done, total ->
             onProgress(
                 ParseProgress(
                     ParseStage.DOWNLOADING,
@@ -185,9 +184,26 @@ class MineruPrecisionParser(
             )
         }
 
-        onProgress(ParseProgress(ParseStage.EXTRACTING, "解压结果"))
-        ZipExtractor().extract(zipFile, destDir)
-        zipFile.delete()
+        val downloader = downloaderProvider()
+        try {
+            if (downloader.canStream) {
+                // 内置方案：响应流直接进 ZipInputStream，result.zip 不落盘
+                downloader.stream(zipUrl, onBytes) { input ->
+                    ZipExtractor().extract(input, destDir)
+                }
+            } else {
+                // 系统下载：传输由 DownloadManager 完成，拿回来的就是文件，只能先落盘再解压
+                val zipFile = File(parent, "result.zip")
+                downloader.download(zipUrl, zipFile, taskKey = dataId, onProgress = onBytes)
+                onProgress(ParseProgress(ParseStage.EXTRACTING, "解压结果"))
+                ZipExtractor().extract(zipFile, destDir)
+                zipFile.delete()
+            }
+        } catch (e: Throwable) {
+            // 半套解压结果没有任何用处，失败即清干净，避免占着空间
+            destDir.deleteRecursively()
+            throw e
+        }
 
         val markdownFile = findMarkdown(destDir)
             ?: throw AppError.BackendError(message = "结果包中未找到 Markdown 文件")
@@ -248,9 +264,15 @@ class MineruPrecisionParser(
         )
     }
 
-    /** 两种下载方案的阶段文案：内置在 App 内下，外部交给系统通知栏。 */
-    private fun downloadLabel(): String =
-        if (downloaderProvider().mode == DownloadMode.EXTERNAL) "系统下载中" else "下载结果"
+    /** 两种下载方案的阶段文案：边走边解 vs 系统通知栏。 */
+    private fun downloadLabel(): String {
+        val downloader = downloaderProvider()
+        return when {
+            downloader.mode == DownloadMode.EXTERNAL -> "系统下载中"
+            downloader.canStream -> "下载并解压"
+            else -> "下载结果"
+        }
+    }
 
     private fun requireToken(): String {
         val token = tokenProvider().trim()

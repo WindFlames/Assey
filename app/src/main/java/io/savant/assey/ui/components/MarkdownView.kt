@@ -313,7 +313,7 @@ private fun AnnotatedString.Builder.appendInline(
         if (text.startsWith("![", i)) {
             val close = text.indexOf("](", i)
             val end = if (close > 0) text.indexOf(')', close) else -1
-            if (close > 0 && end > close) {
+            if (close in 1..<end) {
                 flush()
                 withStyle(base.merge(SpanStyle(fontStyle = FontStyle.Italic))) {
                     append(text.substring(i + 2, close))
@@ -370,7 +370,7 @@ private fun AnnotatedString.Builder.appendInline(
         if (text[i] == '[') {
             val close = text.indexOf("](", i)
             val end = if (close > 0) text.indexOf(')', close) else -1
-            if (close > 0 && end > close) {
+            if (close in 1..<end) {
                 flush()
                 val label = text.substring(i + 1, close)
                 val url = text.substring(close + 2, end)

@@ -3,6 +3,7 @@ package io.savant.assey.data.download
 import io.savant.assey.data.parser.MineruApi
 import io.savant.assey.domain.DownloadMode
 import java.io.File
+import java.io.InputStream
 
 /**
  * 解析结果下载的统一入口。
@@ -13,6 +14,9 @@ import java.io.File
 interface ResultDownloader {
 
     val mode: DownloadMode
+
+    /** 是否能把响应流直接交给上层。系统 DownloadManager 必须落盘，只有内置方案支持。 */
+    val canStream: Boolean get() = false
 
     /**
      * @param url 预签名 CDN 地址（MinerU 的结果包或 Markdown）
@@ -26,6 +30,18 @@ interface ResultDownloader {
         taskKey: String,
         onProgress: (done: Long, total: Long) -> Unit = { _, _ -> }
     ): File
+
+    /**
+     * 不落盘的下载：字节流直接交给 [consume]，它在 IO 线程执行，返回即表示响应读完。
+     * 只有 [canStream] 为 true 时可用。
+     */
+    suspend fun stream(
+        url: String,
+        onProgress: (done: Long, total: Long) -> Unit = { _, _ -> },
+        consume: (InputStream) -> Unit
+    ) {
+        throw UnsupportedOperationException("${mode.name} 不支持流式下载")
+    }
 }
 
 /**
@@ -38,6 +54,8 @@ class BuiltInDownloader(
 
     override val mode: DownloadMode = DownloadMode.BUILT_IN
 
+    override val canStream: Boolean = true
+
     override suspend fun download(
         url: String,
         dest: File,
@@ -46,5 +64,13 @@ class BuiltInDownloader(
     ): File {
         api.download(url, dest, onProgress)
         return dest
+    }
+
+    override suspend fun stream(
+        url: String,
+        onProgress: (done: Long, total: Long) -> Unit,
+        consume: (InputStream) -> Unit
+    ) {
+        api.downloadStream(url, onProgress, consume)
     }
 }
