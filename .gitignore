@@ -1,0 +1,53 @@
+# ==================== Gradle ====================
+.gradle/
+build/
+.kotlin/
+
+# 构建日志 / JVM 崩溃转储
+*.log
+hs_err_pid*
+replay_pid*
+*.hprof
+/build_out.txt
+/sdk_build.txt
+
+# ==================== Android Studio / IntelliJ ====================
+*.iml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/shelf/
+.idea/httpRequests/
+
+# ==================== Android ====================
+local.properties
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+/app/release/
+
+# ==================== 签名与本地密钥（切勿提交） ====================
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+secrets.properties
+.env
+.env.*
+
+# ==================== 操作系统 / 编辑器 ====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+.fleet/
+.vscode/
+
+# ==================== 本机工具 ====================
+.workbuddy/
