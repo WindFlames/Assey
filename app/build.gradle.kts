@@ -3,6 +3,19 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// CI 打 tag 时用 -PappVersionName=1.2.3 -PappVersionCode=42 覆盖；本地构建用默认值。
+val appVersionName = providers.gradleProperty("appVersionName").orNull ?: "1.0"
+val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1
+
+// 发布签名：优先读环境变量（CI），其次读仓库根目录的 keystore.properties（本地，已 gitignore）。
+val keystoreProps = java.util.Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingValue(env: String, key: String): String? =
+    System.getenv(env) ?: keystoreProps.getProperty(key)
+
 android {
     namespace = "io.savant.assey"
     compileSdk {
@@ -12,12 +25,24 @@ android {
         }
     }
 
+    signingConfigs {
+        val storePath = signingValue("ASSEY_KEYSTORE_FILE", "storeFile")
+        if (!storePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = rootProject.file(storePath)
+                storePassword = signingValue("ASSEY_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("ASSEY_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("ASSEY_KEY_PASSWORD", "keyPassword")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "io.savant.assey"
         minSdk = 33
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -28,6 +53,13 @@ android {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
+            // 有发布密钥就用发布密钥；没有时退回 debug 签名，保证 APK 仍可直接安装。
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
