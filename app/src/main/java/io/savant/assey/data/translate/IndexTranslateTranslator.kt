@@ -1,17 +1,17 @@
 package io.savant.assey.data.translate
 
-import io.savant.assey.core.Http
+import io.savant.assey.core.net.ApiClient
 
 /**
  * Index-Translate 默认实现（免 Token，OpenAI 兼容）。
  * 专有参数 chat_template_kwargs 只存在于本类，不会泄漏到领域层。
  */
 class IndexTranslateTranslator(
-    http: Http,
+    api: ApiClient,
     baseUrl: String,
     model: String,
     apiKey: String
-) : ChatCompletionsTranslator(http, baseUrl, model, apiKey) {
+) : ChatCompletionsTranslator(api, baseUrl, model, apiKey) {
 
     override val id: String = ID
 

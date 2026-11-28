@@ -2,6 +2,7 @@ package io.savant.assey
 
 import android.content.Context
 import io.savant.assey.core.Http
+import io.savant.assey.core.net.ApiClient
 import io.savant.assey.data.TaskRunner
 import io.savant.assey.data.chat.ChatApi
 import io.savant.assey.data.chat.ChatStore
@@ -30,6 +31,9 @@ class AppContainer(context: Context) {
 
     val appContext: Context = context.applicationContext
     val http = Http()
+
+    /** 所有后端的统一出口：请求构造、鉴权、超时、进度、错误映射都在这层。 */
+    val apiClient = ApiClient(http)
     private val secureStore = SecureStore()
 
     val settings = SettingsStore(appContext, secureStore)
@@ -43,7 +47,7 @@ class AppContainer(context: Context) {
 
     /** MinerU 的全部网络调用都走这一个 Retrofit 实例，Token 由拦截器按请求动态注入。 */
     val mineruApi = MineruApi(
-        client = http.client,
+        api = apiClient,
         tokenProvider = { settings.snapshot().mineruToken }
     )
     val tokenChecker = MineruTokenChecker(mineruApi)
@@ -64,13 +68,13 @@ class AppContainer(context: Context) {
         }
     )
 
-    val translatorFactory = TranslatorFactory(http) { settings.snapshot() }
+    val translatorFactory = TranslatorFactory(apiClient) { settings.snapshot() }
 
     /**
      * 对话：SSE 流式客户端 + JSON 会话存储。
      * 都是 lazy —— ChatStore 首次访问会读 sessions.json，没必要让每个冷启动都付这份 IO。
      */
-    val chatApi by lazy { ChatApi(http) }
+    val chatApi by lazy { ChatApi(apiClient) }
     val chatStore by lazy { ChatStore(appContext) }
 
     val runner = TaskRunner(this)

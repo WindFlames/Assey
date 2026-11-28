@@ -1,6 +1,6 @@
 package io.savant.assey.data.translate
 
-import io.savant.assey.core.Http
+import io.savant.assey.core.net.ApiClient
 import io.savant.assey.domain.Settings
 import io.savant.assey.domain.Translator
 
@@ -11,7 +11,7 @@ import io.savant.assey.domain.Translator
  * 新增翻译后端只需加实现类并在这里注册。
  */
 class TranslatorFactory(
-    private val http: Http,
+    private val api: ApiClient,
     private val settingsProvider: () -> Settings
 ) {
 
@@ -28,9 +28,9 @@ class TranslatorFactory(
         val base = baseUrl.ifBlank { Settings.DEFAULT_TRANSLATOR_BASE }
         val effectiveModel = model.ifBlank { Settings.DEFAULT_TRANSLATOR_MODEL }
         return if (isIndexTranslate(base)) {
-            IndexTranslateTranslator(http, base, effectiveModel, apiKey)
+            IndexTranslateTranslator(api, base, effectiveModel, apiKey)
         } else {
-            OpenAiCompatibleTranslator(http, base, effectiveModel, apiKey)
+            OpenAiCompatibleTranslator(api, base, effectiveModel, apiKey)
         }
     }
 

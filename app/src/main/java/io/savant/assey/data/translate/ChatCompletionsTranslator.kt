@@ -5,24 +5,19 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.savant.assey.core.AppError
-import io.savant.assey.core.Http
-import io.savant.assey.core.mapIoError
+import io.savant.assey.core.net.ApiClient
+import io.savant.assey.core.net.Auth
+import io.savant.assey.core.net.BackendProfile
+import io.savant.assey.core.net.Timeouts
 import io.savant.assey.domain.Translator
 import io.savant.assey.md.MarkdownTranslationEngine
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /**
- * OpenAI Chat Completions 兼容翻译器的公共实现，直接走 OkHttp。
+ * OpenAI Chat Completions 兼容翻译器的公共实现。
  *
- * 这里刻意不用 openai-java SDK：它为了覆盖全部接口，带进来 37000 多个模型/Builder 类
- * （APK 里 dex 的 84%），而本应用只用一次 `POST /chat/completions`。
- * 子类只决定「专有参数」与 id，翻译/分块/保护逻辑完全复用。
+ * 请求只做一次 `POST /chat/completions`，所以不走 openai-java SDK——它为覆盖全部接口
+ * 带进来 37000 多个模型/Builder 类（APK 里 dex 的 84%）。传输细节交给 [ApiClient]，
+ * 这里只描述「这个后端长什么样」和「怎么从响应里取文本」。
  *
  * Index-Translate 的额外约束：
  *  - baseUrl 指向 https://index-translate.bilibili.com/v1
@@ -31,7 +26,7 @@ import java.util.concurrent.TimeUnit
  *  - chat_template_kwargs 通过 [extraBody] 原样并入请求体
  */
 abstract class ChatCompletionsTranslator(
-    private val http: Http,
+    private val api: ApiClient,
     protected val baseUrl: String,
     protected val model: String,
     protected val apiKey: String
@@ -46,13 +41,15 @@ abstract class ChatCompletionsTranslator(
     protected open val temperature: Double = 0.0
     protected open val maxTokens: Int = 4096
 
-    /**
-     * 复用全局连接池 / 调度器，只针对翻译放宽读超时（长文本单块可能较慢）。
-     * 只 newBuilder 出一个派生 client，不新建连接池。
-     */
-    private val client = http.client.newBuilder()
-        .readTimeout(TRANSLATE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .build()
+    private val profile = BackendProfile(
+        id = "translate",
+        displayName = "翻译服务",
+        baseUrl = baseUrl,
+        auth = Auth.Bearer({ apiKey.ifBlank { "EMPTY" } }),
+        headers = mapOf("User-Agent" to USER_AGENT),
+        // 单块翻译可能较慢
+        timeouts = Timeouts(readSeconds = TRANSLATE_READ_TIMEOUT_SECONDS)
+    )
 
     private val engine by lazy {
         MarkdownTranslationEngine(
@@ -66,30 +63,13 @@ abstract class ChatCompletionsTranslator(
         onProgress: (done: Int, total: Int) -> Unit
     ): String = engine.translate(markdown, target, onProgress)
 
-    protected open suspend fun completeOnce(prompt: String): String = runInterruptible(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(endpoint())
-            .post(buildBody(prompt).toString().toRequestBody(JSON))
-            .header("User-Agent", USER_AGENT)
-            // 部分端点（vLLM / Ollama）不校验 Key，但缺 Authorization 头有的网关会直接 401
-            .header("Authorization", "Bearer ${apiKey.ifBlank { "EMPTY" }}")
-            .build()
-
-        try {
-            client.newCall(request).execute().use { response ->
-                val raw = response.body.string()
-                if (!response.isSuccessful) throw serviceError(response.code, raw)
-                val text = extractContent(raw)
-                if (text.isBlank()) {
-                    throw AppError.BackendError(message = "翻译服务返回了空内容")
-                }
-                text
-            }
-        } catch (e: AppError) {
-            throw e
-        } catch (e: IOException) {
-            throw mapIoError(e)
+    protected open suspend fun completeOnce(prompt: String): String {
+        val raw = api.postJson(profile, CHAT_PATH, buildBody(prompt))
+        val text = extractContent(raw)
+        if (text.isBlank()) {
+            throw AppError.BackendError(message = "翻译服务返回了空内容")
         }
+        return text
     }
 
     private fun buildBody(prompt: String): JsonObject {
@@ -136,29 +116,14 @@ abstract class ChatCompletionsTranslator(
             .orEmpty()
     }
 
-    private fun serviceError(code: Int, body: String): AppError = when (code) {
-        401, 403 -> AppError.AuthError("翻译服务鉴权失败（HTTP $code），请检查 API Key")
-        413 -> AppError.FileTooLarge("翻译请求过大，请缩短文档后重试")
-        429 -> AppError.RateLimited()
-        else -> AppError.BackendError(
-            code = code.toString(),
-            message = "翻译服务返回错误（HTTP $code）${body.take(160).replace("\n", " ")}"
-        )
-    }
-
-    private fun endpoint(): String {
-        val trimmed = baseUrl.trim().trimEnd('/')
-        if (trimmed.isEmpty()) throw AppError.InvalidInput("请先在设置里填写翻译服务地址")
-        return if (trimmed.endsWith("/chat/completions")) trimmed else "$trimmed/chat/completions"
-    }
-
     companion object {
         const val USER_AGENT = "Assey/1.0 (Android; personal use)"
 
         /** 单块翻译可能较慢，读超时放宽到 10 分钟。 */
         private const val TRANSLATE_READ_TIMEOUT_SECONDS = 600L
 
-        private val JSON = "application/json; charset=utf-8".toMediaType()
+        private const val CHAT_PATH = "chat/completions"
+
         private val GSON = Gson()
     }
 }

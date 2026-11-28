@@ -1,10 +1,6 @@
 package io.savant.assey.data.parser
 
 import io.savant.assey.core.AppError
-import okhttp3.MediaType
-import okhttp3.RequestBody
-import okio.BufferedSink
-import java.io.File
 
 /**
  * MinerU 专有的错误码翻译与请求体工具。
@@ -40,34 +36,4 @@ internal fun mineruError(code: String?, msg: String?): AppError = when (code) {
         code,
         msg?.takeIf { it.isNotBlank() } ?: "解析服务返回错误（code=$code）"
     )
-}
-
-/**
- * 预签名 PUT 用的流式请求体：边读边回调进度。
- * contentType 返回 null 是刻意的 —— 预签名地址不允许客户端指定 Content-Type。
- */
-internal class ProgressRequestBody(
-    private val file: File,
-    private val contentType: MediaType? = null,
-    private val onProgress: (done: Long, total: Long) -> Unit
-) : RequestBody() {
-
-    override fun contentType(): MediaType? = contentType
-
-    override fun contentLength(): Long = file.length()
-
-    override fun writeTo(sink: BufferedSink) {
-        val total = file.length()
-        var written = 0L
-        file.inputStream().use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                sink.write(buffer, 0, read)
-                written += read
-                onProgress(written, total)
-            }
-        }
-    }
 }

@@ -4,96 +4,66 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.savant.assey.core.AppError
-import io.savant.assey.core.Http
-import io.savant.assey.core.httpError
-import io.savant.assey.core.mapIoError
+import io.savant.assey.core.net.ApiClient
+import io.savant.assey.core.net.Auth
+import io.savant.assey.core.net.BackendProfile
+import io.savant.assey.core.net.Timeouts
 import io.savant.assey.domain.ChatRequest
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.job
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-import kotlin.coroutines.coroutineContext
 
 /**
  * OpenAI 兼容的 Chat Completions 流式客户端。
  *
+ * 请求构造、鉴权、取消、错误映射都在 [ApiClient]；这里只负责
+ * 「把对话压成 messages 数组」和「从 SSE 里抠出文本增量」。
+ *
  * 不用 openai-java 的流式接口有两个原因：一是它的 chunk 模型对「只取文本增量」太重，
  * 二是这里要能直接读 SSE 原文，方便兼容各家（DeepSeek / vLLM / 中转）不完全一致的返回。
- * 认证、重试、连接池仍复用 [Http] 里的共享 OkHttpClient。
  */
-class ChatApi(private val http: Http) {
-
-    /** 流式输出可能长时间没有新数据，读超时必须关掉；连接超时保持 30s。 */
-    private val client = http.client.newBuilder()
-        .readTimeout(0, TimeUnit.SECONDS)
-        .build()
+class ChatApi(private val api: ApiClient) {
 
     /**
      * 发起流式请求，每拿到一段文本增量就回调 [onDelta]，返回完整回答。
-     * 协程被取消时会顺带 `call.cancel()`，不会留下悬挂的 socket。
+     * 协程被取消时 [ApiClient] 会顺带取消请求，不会留下悬挂的 socket。
      */
-    suspend fun stream(req: ChatRequest, onDelta: (String) -> Unit): String =
-        withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url(endpoint(req.baseUrl))
-                .post(buildBody(req).toString().toRequestBody(JSON))
-                .header("Accept", "text/event-stream")
-                .apply {
-                    // 本地 vLLM / Ollama 之类常常不校验 Key，空值就不要发 Authorization
-                    if (req.apiKey.isNotBlank()) header("Authorization", "Bearer ${req.apiKey}")
+    suspend fun stream(req: ChatRequest, onDelta: (String) -> Unit): String {
+        val profile = BackendProfile(
+            id = "chat",
+            baseUrl = req.baseUrl,
+            auth = Auth.Bearer({ req.apiKey }),
+            // 流式输出可能长时间没有新数据，读超时必须关掉
+            timeouts = Timeouts(readSeconds = 0)
+        )
+        return api.stream(profile, CHAT_PATH, buildBody(req)) { payload ->
+            // 有些中转站会忽略 stream:true 直接回整段 JSON，这里兜一下
+            val isEventStream = payload.contentType?.contains("event-stream", true) == true
+            if (!isEventStream) {
+                val content = parseDelta(payload.source.readUtf8())
+                if (content.isNullOrEmpty()) {
+                    throw AppError.BackendError(message = "模型返回的内容为空")
                 }
-                .build()
-
-            val call = client.newCall(request)
-            coroutineContext.job.invokeOnCompletion { call.cancel() }
-
-            try {
-                call.execute().use { response ->
-                    if (!response.isSuccessful) {
-                        val text = runCatching { response.body.string() }.getOrDefault("")
-                        throw httpError(response.code, text)
-                    }
-                    val source = response.body.source()
-                    // 有些中转站会忽略 stream:true 直接回整段 JSON，这里兜一下
-                    val contentType = response.body.contentType()
-                    val isEventStream = contentType?.subtype?.contains("event-stream", true) == true
-                    if (!isEventStream) {
-                        val content = parseDelta(response.body.string())
-                        if (content.isNullOrEmpty()) {
-                            throw AppError.BackendError(message = "模型返回的内容为空")
-                        }
-                        onDelta(content)
-                        return@withContext content
-                    }
-                    val answer = StringBuilder()
-                    while (true) {
-                        val line = source.readUtf8Line() ?: break
-                        // SSE：空行是事件分隔，`:` 开头是注释/心跳，`event:`/`id:` 用不到
-                        if (line.isEmpty() || line.startsWith(":")) continue
-                        if (!line.startsWith("data:")) continue
-                        val payload = line.removePrefix("data:").trim()
-                        if (payload == "[DONE]") break
-                        val delta = parseDelta(payload) ?: continue
-                        if (delta.isEmpty()) continue
-                        answer.append(delta)
-                        onDelta(delta)
-                    }
-                    if (answer.isEmpty()) {
-                        throw AppError.BackendError(message = "模型没有返回任何内容，换个模型或稍后再试")
-                    }
-                    answer.toString()
-                }
-            } catch (e: IOException) {
-                // 用户点了「停止」时 OkHttp 会以 IOException 结束，这不是错误
-                if (call.isCanceled()) throw CancellationException("已停止生成")
-                throw mapIoError(e)
+                onDelta(content)
+                return@stream content
             }
+
+            val answer = StringBuilder()
+            while (true) {
+                val line = payload.source.readUtf8Line() ?: break
+                // SSE：空行是事件分隔，`:` 开头是注释/心跳，`event:`/`id:` 用不到
+                if (line.isEmpty() || line.startsWith(":")) continue
+                if (!line.startsWith("data:")) continue
+                val data = line.removePrefix("data:").trim()
+                if (data == "[DONE]") break
+                val delta = parseDelta(data) ?: continue
+                if (delta.isEmpty()) continue
+                answer.append(delta)
+                onDelta(delta)
+            }
+            if (answer.isEmpty()) {
+                throw AppError.BackendError(message = "模型没有返回任何内容，换个模型或稍后再试")
+            }
+            answer.toString()
         }
+    }
 
     private fun buildBody(req: ChatRequest): JsonObject {
         val messages = JsonArray()
@@ -137,13 +107,7 @@ class ChatApi(private val http: Http) {
         return null
     }
 
-    private fun endpoint(base: String): String {
-        val trimmed = base.trim().trimEnd('/')
-        if (trimmed.isEmpty()) throw AppError.InvalidInput("请先在设置里填写对话服务地址")
-        return if (trimmed.endsWith("/chat/completions")) trimmed else "$trimmed/chat/completions"
-    }
-
     private companion object {
-        val JSON = "application/json; charset=utf-8".toMediaType()
+        const val CHAT_PATH = "chat/completions"
     }
 }

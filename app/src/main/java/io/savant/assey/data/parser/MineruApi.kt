@@ -4,43 +4,52 @@ import com.google.gson.JsonParser
 import io.savant.assey.core.AppError
 import io.savant.assey.core.httpError
 import io.savant.assey.core.mapIoError
+import io.savant.assey.core.net.ApiClient
+import io.savant.assey.core.net.Auth
+import io.savant.assey.core.net.BackendProfile
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.Interceptor
-import okhttp3.OkHttpClient
-import okhttp3.Response
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
-import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 
 /**
- * MinerU 调用层：Retrofit 实例的持有者，负责
- *  1. 按路径自动补 `Authorization`（预签名上传地址与轻量接口不加）；
+ * MinerU 调用层：后端描述 + Retrofit 实例的持有者，负责
+ *  1. 用 [BackendProfile] 声明「`/api/v4/` 下的请求才带 Token」，与其它后端共用同一套鉴权；
  *  2. 把 HTTP 状态码 / 业务 code / IOException 统一翻译成 [AppError]；
  *  3. 把 DTO 收敛成内部快照，并把上传、下载的进度回调暴露给上层。
+ *
+ * JSON 接口继续走 Retrofit（注解 + DTO 比手写省事），上传/下载这类二进制传输
+ * 交给 [ApiClient]——Retrofit 的 `@Streaming` 拿到的仍是 `ResponseBody`，
+ * 进度、完整性校验、取消还是得自己写一遍。
  *
  * 轮询节奏与阶段提示留在各 Parser，这一层不做业务判断。
  */
 class MineruApi(
-    private val client: OkHttpClient,
+    private val api: ApiClient,
     private val tokenProvider: () -> String = { "" },
     private val baseUrl: String = DEFAULT_BASE_URL
 ) {
 
+    private val profile = BackendProfile(
+        id = "mineru",
+        displayName = "MinerU",
+        baseUrl = baseUrl,
+        // 预签名上传/下载地址不能带鉴权，否则对象存储会直接拒绝
+        auth = Auth.Bearer({ tokenProvider() }, AUTH_PATH_PREFIX)
+    )
+
     private val service: MineruService = Retrofit.Builder()
         .baseUrl(normalize(baseUrl))
-        .client(client.newBuilder().addInterceptor(AuthInterceptor(tokenProvider)).build())
+        .client(api.client(profile))
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(MineruService::class.java)
 
     /** 用指定 Token 复制一份客户端，供设置页「测试 Token」使用。 */
-    fun withToken(token: String): MineruApi = MineruApi(client, { token }, baseUrl)
+    fun withToken(token: String): MineruApi = MineruApi(api, { token }, baseUrl)
 
     // ---------------- 精准解析 ----------------
 
@@ -127,52 +136,16 @@ class MineruApi(
         file: File,
         onProgress: (done: Long, total: Long) -> Unit = { _, _ -> }
     ) {
-        val response = try {
-            service.putFile(url, ProgressRequestBody(file, onProgress = onProgress))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw e.toAppError()
-        }
-        if (!response.isSuccessful) {
-            val text = runCatching { response.errorBody()?.string() }.getOrNull().orEmpty()
-            throw AppError.BackendError(
-                code = response.code().toString(),
-                message = "文件上传失败（HTTP ${response.code()}），请重新提交任务" +
-                    text.take(80).replace("\n", " ")
-            )
-        }
-        response.body()?.close()
+        api.upload(url, file, onProgress)
     }
 
-    /** 流式下载到本地文件，带进度。 */
+    /** 流式下载到本地文件，带进度与完整性校验。 */
     suspend fun download(
         url: String,
         dest: File,
         onProgress: (done: Long, total: Long) -> Unit = { _, _ -> }
     ) {
-        val response = openStream(url)
-        val body = response.body() ?: throw AppError.NetworkError("下载结果为空")
-        val total = body.contentLength()
-        withContext(Dispatchers.IO) {
-            dest.parentFile?.mkdirs()
-            var done = 0L
-            body.byteStream().use { input ->
-                dest.outputStream().buffered().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        done += read
-                        onProgress(done, if (total > 0) total else -1L)
-                    }
-                }
-            }
-        }
-        if (total > 0 && dest.length() != total) {
-            throw AppError.NetworkError("下载不完整，请重试")
-        }
+        api.download(url, dest, onProgress)
     }
 
     /**
@@ -184,46 +157,7 @@ class MineruApi(
         onProgress: (done: Long, total: Long) -> Unit = { _, _ -> },
         consume: (InputStream) -> Unit
     ) {
-        val response = openStream(url)
-        val body = response.body() ?: throw AppError.NetworkError("下载结果为空")
-        val total = body.contentLength()
-        try {
-            withContext(Dispatchers.IO) {
-                var done = 0L
-                body.byteStream().use { raw ->
-                    val counting = object : FilterInputStream(raw) {
-                        private fun advance(read: Int) {
-                            if (read <= 0) return
-                            done += read
-                            onProgress(done, if (total > 0) total else -1L)
-                        }
-
-                        override fun read(): Int = super.read().also { advance(it) }
-
-                        override fun read(b: ByteArray, off: Int, len: Int): Int =
-                            super.read(b, off, len).also { advance(it) }
-                    }
-                    consume(counting)
-                }
-            }
-        } finally {
-            runCatching { body.close() }
-        }
-    }
-
-    private suspend fun openStream(url: String): retrofit2.Response<okhttp3.ResponseBody> {
-        val response = try {
-            service.getStream(url)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw e.toAppError()
-        }
-        if (!response.isSuccessful) {
-            val text = runCatching { response.errorBody()?.string() }.getOrNull().orEmpty()
-            throw httpError(response.code(), text, response.headers()["Retry-After"])
-        }
-        return response
+        api.downloadStream(url, onProgress) { payload -> consume(payload.input) }
     }
 
     // ---------------- 响应 → 领域 ----------------
@@ -246,26 +180,11 @@ class MineruApi(
 
         private const val HTTP_OK = 200
 
+        /** 只有业务接口需要 Token。 */
+        private const val AUTH_PATH_PREFIX = "/api/v4/"
+
         private fun normalize(baseUrl: String): String =
             if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
-    }
-}
-
-/** MinerU 要求所有业务接口都带 Bearer Token；预签名地址与轻量接口不能带。 */
-private class AuthInterceptor(private val tokenProvider: () -> String) : Interceptor {
-
-    override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        val token = tokenProvider().trim()
-        val needsAuth = token.isNotEmpty() && request.url.encodedPath.startsWith(AUTH_PATH_PREFIX)
-        if (!needsAuth) return chain.proceed(request)
-        return chain.proceed(
-            request.newBuilder().header("Authorization", "Bearer $token").build()
-        )
-    }
-
-    private companion object {
-        const val AUTH_PATH_PREFIX = "/api/v4/"
     }
 }
 
