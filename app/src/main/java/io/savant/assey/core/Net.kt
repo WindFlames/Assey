@@ -7,8 +7,9 @@ import java.util.concurrent.TimeUnit
 /**
  * 共享的 OkHttp 客户端。
  *
- * 具体请求由两处发起：MinerU 走 Retrofit（`data/parser/MineruApi`），
- * 翻译走 openai-java（内部复用同一个 client 的连接池）。
+ * 具体请求由三处发起：MinerU 走 Retrofit（`data/parser/MineruApi`）、
+ * 翻译与对话直接构造 OkHttp 请求（`data/translate/ChatCompletionsTranslator`、
+ * `data/chat/ChatApi`），都复用这里的连接池。
  * 这里只负责连接参数与「IOException → 领域错误」的归一化。
  */
 class Http {

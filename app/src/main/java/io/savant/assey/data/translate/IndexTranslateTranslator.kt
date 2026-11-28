@@ -28,7 +28,7 @@ class IndexTranslateTranslator(
 
 /**
  * Index-Translate 的附加请求体。字段名直接对应 JSON，
- * 由 SDK 内部的 Jackson 序列化后并入请求。
+ * 由 Gson 序列化后按顶层 key 并入请求。
  */
 data class IndexTranslateExtraBody(
     val chat_template_kwargs: ChatTemplateKwargs

@@ -2,7 +2,7 @@
 # Assey release 混淆规则
 # ---------------------------------------------------------------------------
 
-# 保留泛型签名、注解，Retrofit / Gson / Jackson 都依赖它们做反射解析。
+# 保留泛型签名、注解，Retrofit / Gson 都依赖它们做反射解析。
 -keepattributes Signature, InnerClasses, EnclosingMethod
 -keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
 -keepattributes AnnotationDefault
@@ -21,18 +21,6 @@
 -dontwarn retrofit2.**
 -dontwarn okhttp3.**
 -dontwarn okio.**
-
-# OpenAI 官方 SDK 内部大量使用 Jackson 注解与反射构造。
--keep class com.openai.** { *; }
--keep class com.fasterxml.jackson.** { *; }
--dontwarn com.fasterxml.jackson.**
-
-# openai-java 的传递依赖 jsonschema-generator（只用于 function-calling 的 schema 生成）
-# 引用了 JDK 专有、Android 上不存在的反射类型，R8 会报 Missing class 并直接失败。
-# 本应用只用 chat completions 的文本补全，不走 tool/schema 那条路径，这些引用不会被执行。
--dontwarn java.lang.reflect.AnnotatedType
--dontwarn java.lang.reflect.AnnotatedParameterizedType
--dontwarn com.github.victools.**
 
 # 应用内通过 Gson 反序列化的传输模型。
 -keep class io.savant.assey.data.parser.** { *; }

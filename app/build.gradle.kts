@@ -54,9 +54,7 @@ android {
             optimization {
                 // 只开总开关，不要设 packageScope。
                 // packageScope 是「还没上 R8 的应用渐进迁移」用的实验功能，只对列出的包
-                // 做压缩/混淆，其余代码原样保留。之前设了 androidx/kotlin/kotlinx 三项，
-                // 结果 openai-java、Jackson、OkHttp 和全部业务代码都没被裁掉也没被混淆，
-                // dex 涨到 56MB、5 万个类。官方也明说已经在用 R8 的应用不该用它。
+                // 做压缩/混淆，其余代码原样保留。官方明说已经在用 R8 的应用不该用它。
                 enable = true
                 keepRules {
                     // 新 DSL 默认不再带 AGP 内置的 Android keep 规则，这里显式打开。
@@ -104,7 +102,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.openai.java)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.gson)
