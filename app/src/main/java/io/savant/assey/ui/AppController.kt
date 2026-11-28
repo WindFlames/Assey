@@ -32,6 +32,8 @@ class AppController(private val container: AppContainer) {
 
     val settings: StateFlow<Settings> = container.settings.state
     val tasks = container.taskModel.tasks
+    // 对话状态按需创建：不进对话页就不读会话文件
+    val chat by lazy { ChatController(container) }
     val route = MutableStateFlow("home")
     val toast = MutableStateFlow<String?>(null)
     val busy = MutableStateFlow(false)
@@ -43,6 +45,11 @@ class AppController(private val container: AppContainer) {
 
     fun openSettings() {
         route.value = "settings"
+    }
+
+    fun openChat() {
+        chat.ensureVisible()
+        route.value = "chat"
     }
 
     fun back() {

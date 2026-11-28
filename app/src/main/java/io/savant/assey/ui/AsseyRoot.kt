@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import io.savant.assey.ui.screens.HomeScreen
+import io.savant.assey.ui.screens.ChatScreen
 import io.savant.assey.ui.screens.SettingsScreen
 import io.savant.assey.ui.screens.TaskScreen
 
@@ -43,6 +44,13 @@ fun AsseyRoot(controller: AppController) {
             settings = settings,
             controller = controller,
             snackbarHost = snackbarHost
+        )
+
+        route == "chat" -> ChatScreen(
+            chat = controller.chat,
+            settings = settings,
+            snackbarHost = snackbarHost,
+            onBack = controller::back
         )
 
         else -> HomeScreen(

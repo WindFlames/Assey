@@ -189,17 +189,34 @@ data class Settings(
     val autoTranslate: Boolean = true,
     val translatorBaseUrl: String = DEFAULT_TRANSLATOR_BASE,
     val translatorModel: String = DEFAULT_TRANSLATOR_MODEL,
-    val translatorApiKey: String = ""
+    val translatorApiKey: String = "",
+    /** 对话服务地址；清空则回退到翻译服务的 baseUrl。 */
+    val chatBaseUrl: String = DEFAULT_CHAT_BASE,
+    /** 对话模型名；留空则用 [DEFAULT_CHAT_MODEL]。 */
+    val chatModel: String = DEFAULT_CHAT_MODEL,
+    /** 对话服务的 Key；留空则复用翻译服务的 Key。 */
+    val chatApiKey: String = "",
+    val chatSystemPrompt: String = DEFAULT_CHAT_PROMPT
 ) {
     companion object {
         const val DEFAULT_TRANSLATOR_BASE = "https://index-translate.bilibili.com/v1"
         const val DEFAULT_TRANSLATOR_MODEL = "Index-Translate-35B-A3B"
         const val MAX_FILE_BYTES = 20L * 1024 * 1024
         const val LITE_MAX_FILE_BYTES = 10L * 1024 * 1024
+        const val DEFAULT_CHAT_BASE = "https://api.openai.com/v1"
+        const val DEFAULT_CHAT_MODEL = "gpt-4o-mini"
+        const val DEFAULT_CHAT_PROMPT =
+            "你是一个严谨、简洁的中文助手。回答用 Markdown，代码块标注语言；不确定的地方直说不确定。"
         val TRANSLATOR_MODELS = listOf(
             "Index-Translate-35B-A3B",
             "Index-Translate-9B",
             "Index-Translate-2B"
+        )
+        val CHAT_MODELS = listOf(
+            "gpt-4o-mini",
+            "gpt-4o",
+            "deepseek-chat",
+            "qwen-plus"
         )
     }
 }

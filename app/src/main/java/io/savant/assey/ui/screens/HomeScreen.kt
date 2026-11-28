@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Settings
@@ -115,6 +116,9 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = controller::openChat) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "对话")
+                    }
                     IconButton(onClick = controller::openSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "设置")
                     }

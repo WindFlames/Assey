@@ -73,6 +73,22 @@ fun MarkdownView(markdown: String, assetsDir: File?, modifier: Modifier = Modifi
     }
 }
 
+/**
+ * 把 Markdown 渲染成一段**不可滚动**的列，用于嵌进外层的 LazyColumn（例如聊天气泡）。
+ * 与 [MarkdownView] 共用同一套 [BlockView]，只是外层由 LazyColumn 换成 Column。
+ */
+@Composable
+fun MarkdownBlockColumn(
+    markdown: String,
+    assetsDir: File? = null,
+    modifier: Modifier = Modifier
+) {
+    val blocks = remember(markdown) { MarkdownBlocks.parse(markdown) }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        blocks.forEach { block -> BlockView(block, assetsDir) }
+    }
+}
+
 @Composable
 private fun BlockView(block: MdBlock, assetsDir: File?) {
     when (block) {

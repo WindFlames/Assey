@@ -3,6 +3,8 @@ package io.savant.assey
 import android.content.Context
 import io.savant.assey.core.Http
 import io.savant.assey.data.TaskRunner
+import io.savant.assey.data.chat.ChatApi
+import io.savant.assey.data.chat.ChatStore
 import io.savant.assey.data.download.BuiltInDownloader
 import io.savant.assey.data.download.SystemDownloader
 import io.savant.assey.data.export.Exporter
@@ -63,6 +65,13 @@ class AppContainer(context: Context) {
     )
 
     val translatorFactory = TranslatorFactory(http) { settings.snapshot() }
+
+    /**
+     * 对话：SSE 流式客户端 + JSON 会话存储。
+     * 都是 lazy —— ChatStore 首次访问会读 sessions.json，没必要让每个冷启动都付这份 IO。
+     */
+    val chatApi by lazy { ChatApi(http) }
+    val chatStore by lazy { ChatStore(appContext) }
 
     val runner = TaskRunner(this)
 

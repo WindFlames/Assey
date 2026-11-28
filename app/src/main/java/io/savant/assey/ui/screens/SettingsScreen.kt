@@ -77,8 +77,13 @@ fun SettingsScreen(
     var baseUrl by rememberSaveable { mutableStateOf(settings.translatorBaseUrl) }
     var translatorModel by rememberSaveable { mutableStateOf(settings.translatorModel) }
     var apiKey by rememberSaveable { mutableStateOf(settings.translatorApiKey) }
+    var chatBaseUrl by rememberSaveable { mutableStateOf(settings.chatBaseUrl) }
+    var chatModel by rememberSaveable { mutableStateOf(settings.chatModel) }
+    var chatApiKey by rememberSaveable { mutableStateOf(settings.chatApiKey) }
+    var chatPrompt by rememberSaveable { mutableStateOf(settings.chatSystemPrompt) }
     var tokenVisible by rememberSaveable { mutableStateOf(false) }
     var keyVisible by rememberSaveable { mutableStateOf(false) }
+    var chatKeyVisible by rememberSaveable { mutableStateOf(false) }
 
     val busy by controller.busy.collectAsState()
     val testResult by controller.testResult.collectAsState()
@@ -100,7 +105,11 @@ fun SettingsScreen(
                 autoTranslate = autoTranslate,
                 translatorBaseUrl = baseUrl.trim().ifBlank { Settings.DEFAULT_TRANSLATOR_BASE },
                 translatorModel = translatorModel.trim().ifBlank { Settings.DEFAULT_TRANSLATOR_MODEL },
-                translatorApiKey = apiKey.trim()
+                translatorApiKey = apiKey.trim(),
+                chatBaseUrl = chatBaseUrl.trim().ifBlank { Settings.DEFAULT_CHAT_BASE },
+                chatModel = chatModel.trim().ifBlank { Settings.DEFAULT_CHAT_MODEL },
+                chatApiKey = chatApiKey.trim(),
+                chatSystemPrompt = chatPrompt
             )
         }
         scope.launch { snackbarHost.showSnackbar("设置已保存，立即生效") }
@@ -322,6 +331,62 @@ fun SettingsScreen(
                     }
                     Text("测试翻译服务")
                 }
+            }
+
+            // 对话服务
+            SettingsCard("对话（Chat）", "任意 OpenAI 兼容端点；Key 留空则复用上面的翻译 Key") {
+                OutlinedTextField(
+                    value = chatBaseUrl,
+                    onValueChange = { chatBaseUrl = it },
+                    label = { Text("Base URL") },
+                    placeholder = { Text(Settings.DEFAULT_CHAT_BASE) },
+                    singleLine = true,
+                    supportingText = { Text("会拼上 /chat/completions；填到 /v1 为止即可") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("模型", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Settings.CHAT_MODELS.forEach { item ->
+                        FilterChip(
+                            selected = chatModel == item,
+                            onClick = { chatModel = item },
+                            label = { Text(item, fontSize = 12.sp) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = chatModel,
+                    onValueChange = { chatModel = it },
+                    label = { Text("模型名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = chatApiKey,
+                    onValueChange = { chatApiKey = it },
+                    label = { Text("API Key（可留空）") },
+                    singleLine = true,
+                    visualTransformation = if (chatKeyVisible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { chatKeyVisible = !chatKeyVisible }) {
+                            Icon(
+                                if (chatKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (chatKeyVisible) "隐藏" else "显示"
+                            )
+                        }
+                    },
+                    supportingText = { Text("留空时使用翻译服务的 Key") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = chatPrompt,
+                    onValueChange = { chatPrompt = it },
+                    label = { Text("System Prompt") },
+                    minLines = 3,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             if (testResult != null) {

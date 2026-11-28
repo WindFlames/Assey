@@ -29,6 +29,7 @@ class SettingsStore(
     private fun load(): Settings {
         val token = prefs.getString(KEY_TOKEN, null)?.let { secure.decrypt(it) }.orEmpty()
         val apiKey = prefs.getString(KEY_API_KEY, null)?.let { secure.decrypt(it) }.orEmpty()
+        val chatKey = prefs.getString(KEY_CHAT_API_KEY, null)?.let { secure.decrypt(it) }.orEmpty()
         return Settings(
             mineruToken = token,
             parserKind = enumOrDefault(prefs.getString(KEY_PARSER, null), ParserKind.AUTO),
@@ -43,7 +44,14 @@ class SettingsStore(
                 ?: Settings.DEFAULT_TRANSLATOR_BASE,
             translatorModel = prefs.getString(KEY_TRANSLATOR_MODEL, Settings.DEFAULT_TRANSLATOR_MODEL)
                 ?: Settings.DEFAULT_TRANSLATOR_MODEL,
-            translatorApiKey = apiKey
+            translatorApiKey = apiKey,
+            chatBaseUrl = prefs.getString(KEY_CHAT_BASE, Settings.DEFAULT_CHAT_BASE)
+                ?: Settings.DEFAULT_CHAT_BASE,
+            chatModel = prefs.getString(KEY_CHAT_MODEL, Settings.DEFAULT_CHAT_MODEL)
+                ?: Settings.DEFAULT_CHAT_MODEL,
+            chatApiKey = chatKey,
+            chatSystemPrompt = prefs.getString(KEY_CHAT_PROMPT, Settings.DEFAULT_CHAT_PROMPT)
+                ?: Settings.DEFAULT_CHAT_PROMPT
         )
     }
 
@@ -61,6 +69,10 @@ class SettingsStore(
                 putBoolean(KEY_AUTO_TRANSLATE, settings.autoTranslate)
                 putString(KEY_TRANSLATOR_BASE, settings.translatorBaseUrl)
                 putString(KEY_TRANSLATOR_MODEL, settings.translatorModel)
+                putString(KEY_CHAT_API_KEY, secure.encrypt(settings.chatApiKey))
+                putString(KEY_CHAT_BASE, settings.chatBaseUrl)
+                putString(KEY_CHAT_MODEL, settings.chatModel)
+                putString(KEY_CHAT_PROMPT, settings.chatSystemPrompt)
         }
     }
 
@@ -80,6 +92,10 @@ class SettingsStore(
         private const val KEY_AUTO_TRANSLATE = "auto_translate"
         private const val KEY_TRANSLATOR_BASE = "translator_base"
         private const val KEY_TRANSLATOR_MODEL = "translator_model"
+        private const val KEY_CHAT_BASE = "chat_base"
+        private const val KEY_CHAT_MODEL = "chat_model"
+        private const val KEY_CHAT_API_KEY = "chat_key_enc"
+        private const val KEY_CHAT_PROMPT = "chat_prompt"
 
         /** 用户可能粘贴 "Bearer xxx"、带引号或首尾空白，统一清理。 */
         fun sanitizeToken(raw: String): String = raw
